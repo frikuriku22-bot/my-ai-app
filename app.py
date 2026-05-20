@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="本格漫画アプリ", layout="wide")
 
 # =====================================================================
-# 💾 データの永続化設定（画像もBase64化して完全にJSONに保存）
+# 💾 データの永続化設定
 # =====================================================================
 USER_FILE = "users_db.json"
 POST_FILE = "posts_db.json"
@@ -54,7 +54,7 @@ def update_user_tickets(username):
     
     if (now - last_check).total_seconds() > 3600: 
         if (last_check.hour < 12 <= now.hour) or (last_check.day != now.day and now.hour < 12) or (now - last_check).days >= 1:
-            user["tickets"] = 2  # 0時と12時に2枚に回復
+            user["tickets"] = 2
             user["last_ticket_update"] = now.isoformat()
             save_data()
 
@@ -62,13 +62,11 @@ def can_read_paid_manga(username, post_id):
     user = st.session_state.users[username]
     now = datetime.now()
     
-    # 共通の無料券で一度「解放（購入）」した漫画かどうかのチェック
     if "unlocked_posts" not in user:
         user["unlocked_posts"] = []
     if str(post_id) in user["unlocked_posts"]:
         return "unlocked"
 
-    # 24時間タイマーのチェック
     timer_key = f"timer_{post_id}"
     if timer_key in user:
         unlock_time = datetime.fromisoformat(user[timer_key])
@@ -135,9 +133,8 @@ else:
     username = st.session_state.current_user
     update_user_tickets(username)
     
-    # 【改善】全アプリ共通の無料券残高をいちばん目立つサイドバー上部に表示
     st.sidebar.markdown(f"### 🎫 あなたの共通無料券: **{st.session_state.users[username]['tickets']} 枚**")
-    st.sidebar.caption("（どれでも好きな有料漫画を1話読めます。毎日0時/12時に2枚にチャージされます）")
+    st.sidebar.caption("毎日0時/12時に2枚にチャージされます")
     st.sidebar.write(f"👤 ユーザー: **{username}**")
     if st.session_state.is_admin:
         st.sidebar.warning("👑 管理者モード")
@@ -168,7 +165,6 @@ else:
                     pay_status = "💰 有料作品" if p.get("is_paid", False) else "🆓 完全無料"
                     
                     with col1:
-                        # 【改善】表紙画像を表示し、クリック（ボタン化）で開けるように実装
                         if "images" in p and p["images"]:
                             try:
                                 cover_data = base64.b64decode(p["images"][0])
@@ -178,7 +174,6 @@ else:
                         else:
                             st.write("🖼️ [表紙なし]")
                         
-                        # 【改善】表紙の下に「タップして読む」ボタンを配置して表紙クリック連動を実現
                         if not p.get("is_paid", False) or status in ["timer_free", "unlocked"]:
                             if st.button("📖 表紙を押して読む", key=f"cover_btn_{p['id']}", use_container_width=True):
                                 p["views"] += 1
@@ -193,11 +188,9 @@ else:
                         if not p.get("is_paid", False) or status in ["timer_free", "unlocked"]:
                             st.success("✅ この作品は現在すぐに読めます！")
                         else:
-                            # 有料作品で、まだ未解放の場合
                             col_btn1, col_btn2 = st.columns(2)
                             with col_btn1:
                                 if st.session_state.users[username]["tickets"] > 0:
-                                    # 【改善】共通無料券を消費して、この漫画を全体共通枠から解放する
                                     if st.button("🎫 共通無料券を1枚使って読む", key=f"ticket_{p['id']}", type="primary"):
                                         st.session_state.users[username]["tickets"] -= 1
                                         if "unlocked_posts" not in st.session_state.users[username]:
@@ -214,12 +207,11 @@ else:
                                     if st.button("⏳ 24時間待って無料で読む", key=f"time_start_{p['id']}"):
                                         st.session_state.users[username][f"timer_{p['id']}"] = (datetime.now() + timedelta(days=1)).isoformat()
                                         save_data()
-                                        st.success("タイバーを開始しました！24時間後に無料化します。")
+                                        st.success("タイマーを開始しました！24時間後に無料化します。")
                                         st.rerun()
                                 else:
                                     st.write(f"⏱️ 無料解放まであと: {status.replace('wait_', '')}")
 
-        # --- ビューア画面（画像が1枚ずつ縦に並んで表示される本編） ---
         if 'viewing_post' in st.session_state:
             post_id = st.session_state.viewing_post
             post_data = next((p for p in st.session_state.posts if p["id"] == post_id), None)
@@ -230,7 +222,6 @@ else:
                     del st.session_state.viewing_post
                     st.rerun()
                 
-                # 【改善】保存されている原稿画像をすべてデコードして縦に綺麗に表示
                 if "images" in post_data and post_data["images"]:
                     for idx, img_b64 in enumerate(post_data["images"]):
                         try:
@@ -250,9 +241,9 @@ else:
             submit = st.form_submit_button("申請を送信")
             
             if submit and title and files:
-                new_id = len(st.session_state.posts) + 1
+                # 重複しない一意のIDを作成
+                new_id = int(time.time() * 1000)
                 
-                # 【改善】アップロードされた画像をBase64文字列に変換して完全にデータ保存
                 encoded_images = []
                 for f in files:
                     file_bytes = f.read()
@@ -265,7 +256,7 @@ else:
                     "author": username,
                     "status": "pending",
                     "is_paid": False,
-                    "images": encoded_images, # 画像データを格納
+                    "images": encoded_images,
                     "views": 0
                 })
                 save_data()
@@ -283,7 +274,9 @@ else:
             else:
                 for p in st.session_state.posts:
                     with st.container(border=True):
-                        st.write(f"**作品:** {p['title']} | **投稿者:** {p['author']} | **現在の状態:** {p['status']}")
+                        # 状態を見やすくバッジ風に表示
+                        status_label = "🟢 公開中" if p["status"] == "approved" else "🟡 承認待ち"
+                        st.write(f"**作品:** {p['title']} | **投稿者:** {p['author']} | **現在の状態:** {status_label}")
                         
                         is_paid = st.toggle("有料作品にする", value=p.get("is_paid", False), key=f"pay_toggle_{p['id']}")
                         if is_paid != p.get("is_paid", False):
@@ -291,15 +284,34 @@ else:
                             save_data()
                             st.toast(f"「{p['title']}」の料金設定を更新しました。")
                         
-                        if p["status"] == "pending":
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                if st.button("✅ 公開を承認", key=f"app_{p['id']}"):
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            # 承認待ちの時だけ「公開する」ボタンを有効化
+                            if p["status"] == "pending":
+                                if st.button("✅ 公開を承認する", key=f"app_{p['id']}", use_container_width=True):
                                     p["status"] = "approved"
                                     save_data()
                                     st.rerun()
-                            with col2:
-                                if st.button("❌ 却下・削除", key=f"del_{p['id']}", type="primary"):
-                                    st.session_state.posts.remove(p)
+                            else:
+                                st.button("✅ 公開済み", disabled=True, key=f"app_dis_{p['id']}", use_container_width=True)
+                                
+                        with col2:
+                            # 【新機能】公開中の作品を「非表示（承認待ちに戻す）」にするボタン
+                            if p["status"] == "approved":
+                                if st.button("🙈 下書き(非表示)に戻す", key=f"hide_{p['id']}", use_container_width=True):
+                                    p["status"] = "pending"
                                     save_data()
+                                    st.success(f"「{p['title']}」を非表示にしました。")
                                     st.rerun()
+                            else:
+                                st.button("🙈 非表示中", disabled=True, key=f"hide_dis_{p['id']}", use_container_width=True)
+                                
+                        with col3:
+                            # 【改善】エラーにならずに安全に、IDを使ってスマートに完全削除する処理
+                            if st.button("❌ 完全に消去する", key=f"del_{p['id']}", type="primary", use_container_width=True):
+                                # 指定のID以外のデータだけでリストを再構成する（一番エラーが起きない安全な消し方）
+                                st.session_state.posts = [item for item in st.session_state.posts if item["id"] != p["id"]]
+                                save_data()
+                                st.warning("投稿を完全に削除しました。")
+                                st.rerun()
