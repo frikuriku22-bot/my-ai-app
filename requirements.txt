@@ -1,2 +1,4 @@
-streamlit
-pandas
+Flask
+bcrypt
+gunicorn
+werkzeug
