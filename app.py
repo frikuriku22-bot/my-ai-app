@@ -247,4 +247,25 @@ else:
             
             for p in st.session_state.posts:
                 with st.container(border=True):
-                    st.write(
+                    st.write(f"**作品:** {p['title']} | **投稿者:** {p['author']} | **現在の状態:** {p['status']}")
+                    
+                    # 【機能】管理者が有料・無料を切り替えるスイッチ
+                    is_paid = st.toggle("有料作品にする", value=p.get("is_paid", False), key=f"pay_toggle_{p['id']}")
+                    if is_paid != p.get("is_paid", False):
+                        p["is_paid"] = is_paid
+                        save_data()
+                        st.toast(f"「{p['title']}」の料金設定を更新しました。")
+                    
+                    # 承認・却下ボタン
+                    if p["status"] == "pending":
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("✅ 公開を承認", key=f"app_{p['id']}"):
+                                p["status"] = "approved"
+                                save_data()
+                                st.rerun()
+                        with col2:
+                            if st.button("❌ 却下・削除", key=f"del_{p['id']}", type="primary"):
+                                st.session_state.posts.remove(p)
+                                save_data()
+                                st.rerun()
