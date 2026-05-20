@@ -118,7 +118,7 @@ else:
                             # 閲覧数を増やす
                             st.session_state.posts.loc[st.session_state.posts["id"] == row["id"], "views"] += 1
                             st.session_state.viewing_post = row["id"]
-                            st.experimental_rerun()
+                            st.rerun()
                             
         # 漫画ビューアのポップアップ表示
         if 'viewing_post' in st.session_state:
