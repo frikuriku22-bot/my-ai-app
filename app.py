@@ -14,6 +14,7 @@ st.set_page_config(page_title="本格漫画アプリ", layout="wide")
 # =====================================================================
 USER_FILE = "users_db.json"
 POST_FILE = "posts_db.json"
+CONTACT_FILE = "contacts_db.json" # お問い合わせ保存用ファイル
 ADMIN_REGISTER_SECRET = "ore_dake_no_himitsu_999"
 
 def load_data():
@@ -29,11 +30,19 @@ def load_data():
     else:
         st.session_state.posts = []
 
+    if os.path.exists(CONTACT_FILE):
+        with open(CONTACT_FILE, "r") as f:
+            st.session_state.contacts = json.load(f)
+    else:
+        st.session_state.contacts = []
+
 def save_data():
     with open(USER_FILE, "w") as f:
         json.dump(st.session_state.users, f)
     with open(POST_FILE, "w") as f:
         json.dump(st.session_state.posts, f)
+    with open(CONTACT_FILE, "w") as f:
+        json.dump(st.session_state.contacts, f)
 
 # 初回データ読み込み
 if 'users' not in st.session_state:
@@ -140,7 +149,9 @@ else:
         st.sidebar.warning("👑 管理者モード")
         
     st.title("📚 本格漫画アプリ")
-    menu = st.sidebar.radio("メニュー", ["🏠 タイムライン", "📤 漫画を投稿する", "🛠️ 管理者ダッシュボード"])
+    
+    # 【新機能】メニューにお問い合わせページを追加しました！
+    menu = st.sidebar.radio("メニュー", ["🏠 タイムライン", "📤 漫画を投稿する", "✉️ お問い合わせ", "🛠️ 管理者ダッシュボード"])
     
     search_query = st.text_input("🔍 漫画のタイトルや投稿者で検索...", "")
 
@@ -160,7 +171,6 @@ else:
             for p in display_posts:
                 with st.container(border=True):
                     col1, col2 = st.columns([1, 4])
-                    
                     status = can_read_paid_manga(username, p["id"])
                     pay_status = "💰 有料作品" if p.get("is_paid", False) else "🆓 完全無料"
                     
@@ -241,9 +251,7 @@ else:
             submit = st.form_submit_button("申請を送信")
             
             if submit and title and files:
-                # 重複しない一意のIDを作成
                 new_id = int(time.time() * 1000)
-                
                 encoded_images = []
                 for f in files:
                     file_bytes = f.read()
@@ -262,56 +270,97 @@ else:
                 save_data()
                 st.success("原稿付きで投稿申請を送りました！管理者の承認をお待ちください。")
 
+    # --- 【新機能】✉️ お問い合わせ画面（一般ユーザー用） ---
+    elif menu == "✉️ お問い合わせ":
+        st.subheader("✉️ 運営へのお問い合わせ・ご要望")
+        st.write("アプリへの不具合報告、機能のご要望、その他メッセージがございましたら以下より送信してください。")
+        
+        with st.form("contact_form", clear_on_submit=True):
+            contact_type = st.selectbox("お問い合わせ種類", ["バグ・不具合報告", "新機能の要望", "作品に関する要望", "その他"])
+            contact_title = st.text_input("件名")
+            contact_body = st.text_area("内容（詳しくご記入ください）")
+            contact_submit = st.form_submit_button("メッセージを送信する")
+            
+            if contact_submit:
+                if not contact_title or not contact_body:
+                    st.error("件名と内容は必ず入力してください。")
+                else:
+                    # お問い合わせデータを追加
+                    st.session_state.contacts.append({
+                        "id": int(time.time() * 1000),
+                        "user": username,
+                        "type": contact_type,
+                        "title": contact_title,
+                        "body": contact_body,
+                        "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+                    })
+                    save_data()
+                    st.success("🎉 お問い合わせを送信しました。管理者が確認いたします。ご協力ありがとうございます！")
+
     # --- 管理者ダッシュボード ---
     elif menu == "🛠️ 管理者ダッシュボード":
         if not st.session_state.is_admin:
             st.error("権限がありません。")
         else:
-            st.subheader("👑 投稿管理・有料化コントロール")
+            # 2つのタブに分けてスッキリ管理
+            tab_manga, tab_contact = st.tabs(["📚 漫画の投稿管理", "✉️ 届いたお問い合わせ"])
             
-            if not st.session_state.posts:
-                st.info("投稿された作品はまだありません。")
-            else:
-                for p in st.session_state.posts:
-                    with st.container(border=True):
-                        # 状態を見やすくバッジ風に表示
-                        status_label = "🟢 公開中" if p["status"] == "approved" else "🟡 承認待ち"
-                        st.write(f"**作品:** {p['title']} | **投稿者:** {p['author']} | **現在の状態:** {status_label}")
-                        
-                        is_paid = st.toggle("有料作品にする", value=p.get("is_paid", False), key=f"pay_toggle_{p['id']}")
-                        if is_paid != p.get("is_paid", False):
-                            p["is_paid"] = is_paid
-                            save_data()
-                            st.toast(f"「{p['title']}」の料金設定を更新しました。")
-                        
-                        col1, col2, col3 = st.columns(3)
-                        
-                        with col1:
-                            # 承認待ちの時だけ「公開する」ボタンを有効化
-                            if p["status"] == "pending":
-                                if st.button("✅ 公開を承認する", key=f"app_{p['id']}", use_container_width=True):
-                                    p["status"] = "approved"
-                                    save_data()
-                                    st.rerun()
-                            else:
-                                st.button("✅ 公開済み", disabled=True, key=f"app_dis_{p['id']}", use_container_width=True)
-                                
-                        with col2:
-                            # 【新機能】公開中の作品を「非表示（承認待ちに戻す）」にするボタン
-                            if p["status"] == "approved":
-                                if st.button("🙈 下書き(非表示)に戻す", key=f"hide_{p['id']}", use_container_width=True):
-                                    p["status"] = "pending"
-                                    save_data()
-                                    st.success(f"「{p['title']}」を非表示にしました。")
-                                    st.rerun()
-                            else:
-                                st.button("🙈 非表示中", disabled=True, key=f"hide_dis_{p['id']}", use_container_width=True)
-                                
-                        with col3:
-                            # 【改善】エラーにならずに安全に、IDを使ってスマートに完全削除する処理
-                            if st.button("❌ 完全に消去する", key=f"del_{p['id']}", type="primary", use_container_width=True):
-                                # 指定のID以外のデータだけでリストを再構成する（一番エラーが起きない安全な消し方）
-                                st.session_state.posts = [item for item in st.session_state.posts if item["id"] != p["id"]]
+            with tab_manga:
+                st.subheader("👑 投稿管理・有料化コントロール")
+                if not st.session_state.posts:
+                    st.info("投稿された作品はまだありません。")
+                else:
+                    for p in st.session_state.posts:
+                        with st.container(border=True):
+                            status_label = "🟢 公開中" if p["status"] == "approved" else "🟡 承認待ち"
+                            st.write(f"**作品:** {p['title']} | **投稿者:** {p['author']} | **現在の状態:** {status_label}")
+                            
+                            is_paid = st.toggle("有料作品にする", value=p.get("is_paid", False), key=f"pay_toggle_{p['id']}")
+                            if is_paid != p.get("is_paid", False):
+                                p["is_paid"] = is_paid
                                 save_data()
-                                st.warning("投稿を完全に削除しました。")
+                                st.toast(f"「{p['title']}」の料金設定を更新しました。")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                if p["status"] == "pending":
+                                    if st.button("✅ 公開を承認する", key=f"app_{p['id']}", use_container_width=True):
+                                        p["status"] = "approved"
+                                        save_data()
+                                        st.rerun()
+                                else:
+                                    st.button("✅ 公開済み", disabled=True, key=f"app_dis_{p['id']}", use_container_width=True)
+                                    
+                            with col2:
+                                if p["status"] == "approved":
+                                    if st.button("🙈 下書き(非表示)に戻す", key=f"hide_{p['id']}", use_container_width=True):
+                                        p["status"] = "pending"
+                                        save_data()
+                                        st.rerun()
+                                else:
+                                    st.button("🙈 非表示中", disabled=True, key=f"hide_dis_{p['id']}", use_container_width=True)
+                                    
+                            with col3:
+                                if st.button("❌ 完全に消去する", key=f"del_{p['id']}", type="primary", use_container_width=True):
+                                    st.session_state.posts = [item for item in st.session_state.posts if item["id"] != p["id"]]
+                                    save_data()
+                                    st.rerun()
+            
+            # 【新機能】管理者向け：届いたお問い合わせの確認・削除スペース
+            with tab_contact:
+                st.subheader("✉️ 受信したお問い合わせ一覧")
+                if not st.session_state.contacts:
+                    st.info("現在届いているお問い合わせはありません。")
+                else:
+                    for c in st.session_state.contacts:
+                        with st.container(border=True):
+                            st.markdown(f"**【{c['type']}】 {c['title']}**")
+                            st.caption(f"📅 送信日時: {c['date']} | 👤 送信ユーザー: {c['user']}")
+                            st.write(c['body'])
+                            
+                            # 確認したら削除（対応完了）できるボタン
+                            if st.button("🗑️ 対応完了（このメッセージを削除）", key=f"del_contact_{c['id']}", type="primary"):
+                                st.session_state.contacts = [item for item in st.session_state.contacts if item["id"] != c["id"]]
+                                save_data()
+                                st.success("お問い合わせを削除しました。")
                                 st.rerun()
